@@ -542,8 +542,8 @@ if __name__ == '__main__':
     trainer.train(
         train_path=train_data_file,
         output_dir=output_dir,
-        epochs=20,
-        # 10
+        epochs=10,
+        # 20 This is a mistake in the initial version of the paper WAR-Re
         lr=5e-6,
         evaluation_steps=400
     )
