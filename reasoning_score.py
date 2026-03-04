@@ -79,76 +79,101 @@ with open(output_file_path, 'a', encoding='utf-8') as fout:
         
         prompt_message = f"""API Reason Evaluation Task
 You are given a mashup description, recommended APIs, their corresponding descriptions, and the reason for the recommendation.
-You are asked to evaluate the reason for the recommendation and give a score ranging from 0 to 1 by analyzing:
-(1) How well the reason aligns with the mashup requirements
-(2) How well the reason aligns with the API descriptions
-(3) The overall quality and accuracy of the reasoning
-
-The final score should be the average assessment of all the recommended APIs. If any API doesn't have a reason, it should be given 0 definitely.
-The API names in the reason are already enclosed in angle brackets exactly as given in Recommended APIs, 
-for example: <API_sendgrid>.
-
-Please provide only the numerical score (0 to 1) as your response.
-
+#Instruction
+Please evaluate the recommendation by:
+1. List all the APIs both in the "Recommended APIs" and in the reason. The API names in the reason are already enclosed in angle brackets (e.g., <API_sendgrid>).
+2. For EACH API, evaluate the reason based on three criteria independently and provide:
+Criterion 1 Score (0-1): How well the reason aligns with the mashup requirements.
+Criterion 2 Score (0-1): How well the reason aligns with the API description.
+Criterion 3 Score (0-1): The readability of the reasoning.
+A concise justification for each criterion
+3. Finally, provide an overall score (0 to 1) calculated as the average of all criteria scores across ALL APIs.
+If any API doesn't have a reason or any API is in the reason but not listed in "Recommended APIs", it should be given 0 for all criteria.
+#Output Format
+Please respond in the following format:
+{{
+"api_evaluations": [
+{{
+"api_name": "<API name>",
+"criterion_1_score": "<score 0-1>",
+"criterion_1_reason": "<reason>",
+"criterion_2_score": "<score 0-1>",
+"criterion_2_reason": "<reason>",
+"criterion_3_score": "<score 0-1>",
+"criterion_3_reason": "<reason>"
+}}, ...
+],
+"overall_score": "<score 0-1>"
+}}
+#Input
 Mashup: {mashup_description}
 Recommended APIs: {completion_str}
 Recommended APIs Description: {target_api_description}
-Reason: {existing_reason}
+Reason: {existing_reason}"""
 
-Score:"""
-        
         max_retries = 5
         retry_count = 0
         score = None
-        
+        score_full = None
+
         while retry_count < max_retries:
             try:
                 print(f"Processing record {i + 1}/{total_records} (batch #{current_batch_processed + 1}), attempt {retry_count + 1}...")
-                
+
                 response = client.chat.completions.create(
-                    model="deepseek/deepseek-r1-0528:free",
+                    model="...",
                     messages=[
                         {"role": "user", "content": prompt_message}
                     ]
                 )
                 score_response = response.choices[0].message.content.strip()
-                
+
                 try:
                     import re
-                    score_match = re.search(r'(\d*\.?\d+)', score_response)
-                    if score_match:
-                        score = float(score_match.group(1))
-                        if 0 <= score <= 1:
+                    json_match = re.search(r'\{[\s\S]*\}', score_response)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        score_data = json.loads(json_str)
+
+                        overall_score = score_data.get("overall_score")
+                        if overall_score is not None:
+                            overall_score = float(overall_score)
+                        if overall_score is not None and 0 <= overall_score <= 1:
+                            score = overall_score
+                            score_full = score_data
                             success_count += 1
-                            print(f"✓ Successfully obtained score: {score}")
+                            print(f"Successfully obtained score: {score}")
                             break
                         else:
-                            print(f"✗ Score out of range (0-1): {score}")
+                            print(f"Overall score out of range or missing: {overall_score}")
                             retry_count += 1
                     else:
-                        print(f"✗ Unable to extract score from response: {score_response[:50]}...")
+                        print(f"Unable to extract JSON from response: {score_response[:100]}...")
                         retry_count += 1
-                except ValueError:
-                    print(f"✗ Unable to parse score: {score_response[:50]}...")
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"Unable to parse response: {e}")
+                    print(f"Response: {score_response[:100]}...")
                     retry_count += 1
-                
+
                 if retry_count < max_retries and score is None:
                     print(f"Waiting 2 seconds before retry...")
                     time.sleep(2)
-                
+
             except Exception as e:
                 retry_count += 1
-                print(f"✗ Request exception on attempt {retry_count}: {e}")
+                print(f"Request exception on attempt {retry_count}: {e}")
                 if retry_count < max_retries:
                     print(f"Waiting 2 seconds before retry...")
                     time.sleep(2)
-        
+
         if retry_count >= max_retries or score is None:
             score = -1
+            score_full = {"error": "Failed to obtain score after maximum retries"}
             error_count += 1
-            print(f"✗ Record processing failed, maximum retries reached")
-        
+            print(f"Record processing failed, maximum retries reached")
+
         record["score"] = score
+        record["score_full"] = score_full
         
         fout.write(json.dumps(record, ensure_ascii=False) + "\n")
         fout.flush()
