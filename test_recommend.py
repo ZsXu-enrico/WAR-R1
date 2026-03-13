@@ -316,8 +316,8 @@ class APIRecommendationTester:
             return 0.0
         
         # 关键修改：c 不应该超过真实标签数量，避免 IDCG 计算偏差
-        c = min(len(target), c)
-        
+        # 这个注意是错的c = min(len(target), c)
+        c = min(len(target), len(pred))
         idcg = 0
         for i in range(1, c + 1):
             idcg += (1 / np.log2(i + 1))
@@ -339,8 +339,8 @@ class APIRecommendationTester:
         if c == 0:
             return 0.0
         else:
-            return np.sum(p_at_k) / c
-
+            # 这个是错的return np.sum(p_at_k) / c
+            return np.sum(p_at_k) / len(target)
     def precision(self, target, pred):
         """Calculate precision"""
         if len(pred) == 0:
